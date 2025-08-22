@@ -1,0 +1,128 @@
+name: Validate Chess Move
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'games/*/moves.json'
+
+jobs:
+  validate-move:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build project
+        run: npm run build
+      
+      - name: Get changed files
+        id: changed-files
+        run: |
+          echo "files=$(git diff --name-only origin/${{ github.base_ref }}...${{ github.sha }} | grep '^games/.*/moves.json$' | head -1)" >> $GITHUB_OUTPUT
+      
+      - name: Extract game ID
+        id: game-info
+        run: |
+          FILE="${{ steps.changed-files.outputs.files }}"
+          if [ -n "$FILE" ]; then
+            GAME_ID=$(echo "$FILE" | cut -d'/' -f2)
+            echo "game_id=$GAME_ID" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Validate move
+        if: steps.game-info.outputs.game_id
+        run: |
+          node dist/validation/index.js validate \
+            --game-id "${{ steps.game-info.outputs.game_id }}" \
+            --player "${{ github.event.pull_request.user.login }}"
+      
+      - name: Check game status
+        if: steps.game-info.outputs.game_id
+        id: game-status
+        run: |
+          STATUS=$(node dist/validation/index.js status --game-id "${{ steps.game-info.outputs.game_id }}")
+          echo "status=$STATUS" >> $GITHUB_OUTPUT
+      
+      - name: Comment on PR - Valid Move
+        if: success() && steps.game-info.outputs.game_id
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const gameId = '${{ steps.game-info.outputs.game_id }}';
+            const status = '${{ steps.game-status.outputs.status }}';
+            
+            let message = `✅ **Move validated successfully!**\n\n`;
+            message += `Game ID: \`${gameId}\`\n`;
+            message += `Status: ${status}\n\n`;
+            message += `Your move has been validated and is ready to be merged.`;
+            
+            if (status.includes('Check')) {
+              message += `\n\n⚠️ **Check!** The opponent's king is in check.`;
+            }
+            
+            if (status.includes('Checkmate')) {
+              message += `\n\n🎉 **Checkmate!** Game over. You win!`;
+            }
+            
+            if (status.includes('Stalemate')) {
+              message += `\n\n🤝 **Stalemate!** The game is a draw.`;
+            }
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: message
+            });
+      
+      - name: Comment on PR - Invalid Move
+        if: failure() && steps.game-info.outputs.game_id
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const gameId = '${{ steps.game-info.outputs.game_id }}';
+            
+            let message = `❌ **Invalid move detected!**\n\n`;
+            message += `Game ID: \`${gameId}\`\n\n`;
+            message += `Please check:\n`;
+            message += `- It's your turn to move\n`;
+            message += `- The move follows chess rules\n`;
+            message += `- You're not moving into check\n`;
+            message += `- The piece exists at the source square\n\n`;
+            message += `Use the CLI tool to validate your move locally:\n`;
+            message += `\`\`\`bash\ngitchess move <from> <to> --game ${gameId}\n\`\`\``;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: message
+            });
+      
+      - name: Auto-merge if valid
+        if: success() && steps.game-info.outputs.game_id && !contains(steps.game-status.outputs.status, 'mate')
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            github.rest.pulls.merge({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              merge_method: 'squash'
+            });

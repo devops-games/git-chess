@@ -1,0 +1,212 @@
+name: Create New Game
+
+on:
+  workflow_dispatch:
+    inputs:
+      white_player:
+        description: 'GitHub username for White player'
+        required: true
+        type: string
+      black_player:
+        description: 'GitHub username for Black player'
+        required: true
+        type: string
+      time_control:
+        description: 'Time control type'
+        required: true
+        type: choice
+        options:
+          - bullet
+          - blitz
+          - rapid
+          - classical
+          - correspondence
+      variant:
+        description: 'Chess variant'
+        required: false
+        type: choice
+        default: standard
+        options:
+          - standard
+          - chess960
+
+jobs:
+  create-game:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build project
+        run: npm run build
+      
+      - name: Generate game ID
+        id: game
+        run: |
+          GAME_ID=$(node -e "console.log(Date.now().toString(36) + Math.random().toString(36).substr(2, 5))")
+          echo "id=$GAME_ID" >> $GITHUB_OUTPUT
+      
+      - name: Create game directory
+        run: mkdir -p games/${{ steps.game.outputs.id }}
+      
+      - name: Generate starting position
+        id: starting-position
+        run: |
+          if [ "${{ github.event.inputs.variant }}" = "chess960" ]; then
+            FEN=$(node dist/chess/chess960.js)
+          else
+            FEN="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+          fi
+          echo "fen=$FEN" >> $GITHUB_OUTPUT
+      
+      - name: Create game configuration
+        run: |
+          cat > games/${{ steps.game.outputs.id }}/config.yaml << EOF
+          id: ${{ steps.game.outputs.id }}
+          white: ${{ github.event.inputs.white_player }}
+          black: ${{ github.event.inputs.black_player }}
+          timeControl:
+            type: ${{ github.event.inputs.time_control }}
+            initial: $(node -e "const t={'bullet':60,'blitz':180,'rapid':600,'classical':1800,'correspondence':86400}; console.log(t['${{ github.event.inputs.time_control }}'])")
+            increment: $(node -e "const i={'bullet':1,'blitz':2,'rapid':10,'classical':30,'correspondence':0}; console.log(i['${{ github.event.inputs.time_control }}'])")
+          variant: ${{ github.event.inputs.variant }}
+          startingFEN: "${{ steps.starting-position.outputs.fen }}"
+          createdAt: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          status: active
+          EOF
+      
+      - name: Create initial game state
+        run: |
+          cat > games/${{ steps.game.outputs.id }}/state.json << EOF
+          {
+            "id": "${{ steps.game.outputs.id }}",
+            "white": "${{ github.event.inputs.white_player }}",
+            "black": "${{ github.event.inputs.black_player }}",
+            "currentFEN": "${{ steps.starting-position.outputs.fen }}",
+            "turn": "white",
+            "moveNumber": 1,
+            "status": "active",
+            "lastMoveAt": null,
+            "timeRemaining": {
+              "white": $(node -e "const t={'bullet':60,'blitz':180,'rapid':600,'classical':1800,'correspondence':86400}; console.log(t['${{ github.event.inputs.time_control }}'])"),
+              "black": $(node -e "const t={'bullet':60,'blitz':180,'rapid':600,'classical':1800,'correspondence':86400}; console.log(t['${{ github.event.inputs.time_control }}'])")
+            }
+          }
+          EOF
+      
+      - name: Create moves file
+        run: |
+          echo "[]" > games/${{ steps.game.outputs.id }}/moves.json
+      
+      - name: Create game README
+        run: |
+          cat > games/${{ steps.game.outputs.id }}/README.md << EOF
+          # Chess Game: ${{ steps.game.outputs.id }}
+          
+          ## Players
+          - **White**: @${{ github.event.inputs.white_player }}
+          - **Black**: @${{ github.event.inputs.black_player }}
+          
+          ## Game Settings
+          - **Time Control**: ${{ github.event.inputs.time_control }}
+          - **Variant**: ${{ github.event.inputs.variant }}
+          - **Status**: Active
+          - **Current Turn**: White
+          
+          ## How to Make a Move
+          
+          1. Install the GitChess CLI:
+             \`\`\`bash
+             npm install -g gitchess
+             \`\`\`
+          
+          2. Clone the repository:
+             \`\`\`bash
+             git clone ${{ github.server_url }}/${{ github.repository }}.git
+             cd $(basename ${{ github.repository }})
+             \`\`\`
+          
+          3. Make your move:
+             \`\`\`bash
+             gitchess move e2 e4 --game ${{ steps.game.outputs.id }}
+             \`\`\`
+          
+          4. Create a pull request:
+             \`\`\`bash
+             git checkout -b move-$(date +%s)
+             git add games/${{ steps.game.outputs.id }}/moves.json
+             git commit -m "Move in game ${{ steps.game.outputs.id }}"
+             git push origin HEAD
+             gh pr create --title "Move in game ${{ steps.game.outputs.id }}" --body "Making my move"
+             \`\`\`
+          
+          ## Current Board Position
+          
+          \`\`\`
+          8 | r n b q k b n r
+          7 | p p p p p p p p
+          6 | . . . . . . . .
+          5 | . . . . . . . .
+          4 | . . . . . . . .
+          3 | . . . . . . . .
+          2 | P P P P P P P P
+          1 | R N B Q K B N R
+            +----------------
+              a b c d e f g h
+          \`\`\`
+          
+          ## Move History
+          
+          _No moves yet_
+          EOF
+      
+      - name: Commit new game
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add games/${{ steps.game.outputs.id }}
+          git commit -m "Create new game: ${{ steps.game.outputs.id }}"
+          git push
+      
+      - name: Create issue for game
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const gameId = '${{ steps.game.outputs.id }}';
+            const white = '${{ github.event.inputs.white_player }}';
+            const black = '${{ github.event.inputs.black_player }}';
+            
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Chess Game: ${white} (White) vs ${black} (Black)`,
+              body: `## New Chess Game Started!\n\n` +
+                    `**Game ID**: \`${gameId}\`\n` +
+                    `**White**: @${white}\n` +
+                    `**Black**: @${black}\n` +
+                    `**Time Control**: ${{ github.event.inputs.time_control }}\n` +
+                    `**Variant**: ${{ github.event.inputs.variant }}\n\n` +
+                    `### Game Directory\n` +
+                    `[\`games/${gameId}/\`](https://github.com/${{ github.repository }}/tree/main/games/${gameId})\n\n` +
+                    `### How to Play\n` +
+                    `See the [game README](https://github.com/${{ github.repository }}/blob/main/games/${gameId}/README.md) for instructions.\n\n` +
+                    `Good luck to both players! 🎮`,
+              labels: ['game', 'active', gameId],
+              assignees: [white, black]
+            });
+            
+            console.log(`Issue created: ${issue.data.html_url}`);
