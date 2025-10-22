@@ -422,8 +422,8 @@ class ChessEngine {
 
         // Piece prefix (except for pawns)
         if (piece.type !== 'pawn') {
-            const pieceSymbol = piece.type[0].toUpperCase();
-            notation += pieceSymbol === 'K' && piece.type === 'knight' ? 'N' : pieceSymbol;
+            const pieceSymbol = piece.type === 'knight' ? 'N' : piece.type[0].toUpperCase();
+            notation += pieceSymbol;
         }
 
         // Capture notation
