@@ -311,7 +311,11 @@ class ChessGame {
         for (const move of moves) {
             const [fromRow, fromCol] = this.engine.squareToCoords(move.from);
             const [toRow, toCol] = this.engine.squareToCoords(move.to);
-            this.engine.makeMove(fromRow, fromCol, toRow, toCol);
+            if ('promotion' in move && move.promotion) {
+                this.engine.makeMove(fromRow, fromCol, toRow, toCol, move.promotion);
+            } else {
+                this.engine.makeMove(fromRow, fromCol, toRow, toCol);
+            }
         }
 
         this.clearSelection();
