@@ -6,6 +6,7 @@ Play chess through Git pull requests! A unique way to play chess where every mov
 
 - **Git-based gameplay**: Every move is a commit and pull request
 - **CI/CD rule enforcement**: GitHub Actions validates all moves automatically
+- **Browser-based chess game**: Play chess directly in your browser with a beautiful UI
 - **Multiple simultaneous games**: Support for multiple games in parallel
 - **Time controls**: Bullet, Blitz, Rapid, Classical, and Correspondence
 - **Chess variants**: Standard and Chess960
@@ -13,6 +14,20 @@ Play chess through Git pull requests! A unique way to play chess where every mov
 - **Automatic game state tracking**: Board position, move history, and game status
 
 ## Quick Start
+
+### Browser Chess Game
+
+Want to just play chess? Open `web/index.html` in your browser for a fully-functional chess game with a beautiful interface!
+
+**Features:**
+- Drag-and-drop pieces
+- Click to move
+- Visual move highlights
+- Full chess rules enforcement
+- Move history and FEN notation
+- Undo moves and flip board
+
+See the [web/README.md](web/README.md) for more details.
 
 ### Installation
 
@@ -143,6 +158,13 @@ src/
 ├── cli/            # CLI commands
 ├── game/           # Game management
 └── validation/     # Move validation for CI
+
+web/
+├── index.html      # Browser chess game
+├── style.css       # Game styling
+├── chess-engine.js # Chess logic for browser
+├── game.js         # UI controller
+└── README.md       # Browser game documentation
 ```
 
 ## Contributing
